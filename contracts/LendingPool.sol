@@ -120,12 +120,17 @@ contract LendingPool is OwnableUpgradeable, ERC721Upgradeable, Clone {
         // Conversion to uint216 doesnt really matter either because it will only change price if LTV is extremely high
         // and pool owner can achieve the same anyways by setting a very low LTV
         price = uint216((price * ltv) / 1e18);
+
         uint256 length = nftId.length;
         uint256 borrowedNow = price * length;
+
         require(borrowedNow == totalToBorrow, "ltv changed");
         uint256 interest = _calculateInterest(borrowedNow);
         require(interest <= maxInterest);
+
         totalBorrowed += borrowedNow;
+
+        // Borrow a set of NFTs
         uint256 i = 0;
         while (i < length) {
             _borrow(nftId[i], price, interest);
@@ -133,35 +138,58 @@ contract LendingPool is OwnableUpgradeable, ERC721Upgradeable, Clone {
                 i++;
             }
         }
+
+        // Update number of collateral NFTs put in pool by user
         _balances[msg.sender] += length;
+
         // it's okay to restrict borrowedNow to uint216 because we will send that amount in ETH, and that much ETH doesnt exist
         _addDailyBorrows(uint216(borrowedNow));
         payable(msg.sender).sendValue(borrowedNow);
     }
 
+    /// @dev Repay a set of loans
+    /// @param loansToRepay Set of loans to repay
+    /// @param from Borrower's address
     function repay(Loan[] calldata loansToRepay, address from) external payable {
         require(msg.sender == from || msg.sender == factory); // Factory enforces that from is msg.sender
+ 
         uint256 length = loansToRepay.length;
         uint256 totalToRepay = 0;
         uint256 i = 0;
+
+        // Repay each loan
         while (i < length) {
             totalToRepay += _repay(loansToRepay[i], from);
             unchecked {
                 i++;
             }
         }
+
+        // Update number of collateral NFTs put in pool by user
         _balances[from] -= length;
+
+        // Return change
         payable(msg.sender).sendValue(msg.value - totalToRepay); // overflow checks implictly check that amount is enough
     }
 
-    // Liquidate expired loan
+    /// @dev Do effective altruism (close loan position and move NFT out)
+    /// @param loan Loan to liquidate
+    /// @param to Address to transfer NFT to
     function doEffectiveAltruism(Loan calldata loan, address to) external {
+
+        // Ensure liquidator
         require(liquidators[msg.sender] == true);
+
+        // Get loan and check that it is available to be liquidated
         uint256 loanId = getLoanId(loan.nft, loan.interest, loan.startTime, loan.borrowed);
         require(_exists(loanId), "loan closed");
         require(block.timestamp > (loan.startTime + maxLoanLength), "not expired");
+
+        // Close loan position
         totalBorrowed -= loan.borrowed;
         _burn(loanId);
+
+        // Transfer NFT out
         nftContract.transferFrom(address(this), to, loan.nft);
     }
 
@@ -169,6 +197,11 @@ contract LendingPool is OwnableUpgradeable, ERC721Upgradeable, Clone {
                                   VIEW
     //////////////////////////////////////////////////////////////*/
 
+    /// @dev Get loan id
+    /// @param nftId Tokenid of NFT
+    /// @param interest Interest that loan was fixed at
+    /// @param startTime Start time of the loan that helps index
+    /// @param price Original amount borrowed against NFT
     function getLoanId(uint256 nftId, uint256 interest, uint256 startTime, uint216 price)
         public
         pure
@@ -177,8 +210,19 @@ contract LendingPool is OwnableUpgradeable, ERC721Upgradeable, Clone {
         return uint256(keccak256(abi.encode(nftId, interest, startTime, price)));
     }
 
+    /// @dev Check that given price reading from Oracle is authentic with the given (v, r, s)
+    /// @param price Price reading from Oracle
+    /// @param deadline Deadline reading from Oracle
+    /// @param v Recovery id of signature
+    /// @param r One half of output from ECDSA signature
+    /// @param s Other half of output from ECDSA signature
     function checkOracle(uint216 price, uint256 deadline, uint8 v, bytes32 r, bytes32 s) public view {
+
+        // Check if a pricing quote has already expired. We usually check this so that old signatures (say a signature
+        // that signs off that the price of an NFT was $1 taken from a year ago but the price is now $100) can't be reused.
         require(block.timestamp < deadline, "deadline over");
+
+        // Ensure that the signer is the oracle address
         require(
             ecrecover(
                 keccak256(
@@ -192,6 +236,7 @@ contract LendingPool is OwnableUpgradeable, ERC721Upgradeable, Clone {
             ) == oracle,
             "not oracle"
         );
+
         require(price < maxPrice, "max price");
     }
 
