@@ -46,11 +46,7 @@ contract LendingPoolTest is Test {
         vm.startPrank(owner);
         LendingPool lendingPoolImplementation = new LendingPool();
         factory = new LlamaLendFactory(lendingPoolImplementation);
-        interests = LendingPool.Interests(
-            INTEREST_WEI_PER_ETH_PER_YEAR / SECONDS_PER_YEAR,
-            MINIMUM_INTEREST,
-            LTV
-        );
+        interests = LendingPool.Interests(INTEREST_WEI_PER_ETH_PER_YEAR / SECONDS_PER_YEAR, MINIMUM_INTEREST, LTV);
         nft = new MockNFT();
         lendingPool = factory.createPool(
             oracle,
@@ -109,10 +105,7 @@ contract LendingPoolTest is Test {
     }
 
     function test_CurrentAnnualInterestWhenZeroEthInContract() public {
-        assertEq(
-            lendingPool.currentAnnualInterest(0),
-            MINIMUM_INTEREST * SECONDS_PER_YEAR
-        );
+        assertEq(lendingPool.currentAnnualInterest(0), MINIMUM_INTEREST * SECONDS_PER_YEAR);
     }
 
     function test_DepositByOwner() public {
@@ -149,16 +142,7 @@ contract LendingPoolTest is Test {
 
         vm.prank(user);
         vm.expectRevert("ERC721: caller is not token owner or approved");
-        lendingPool.borrow(
-            nftIds,
-            PRICE,
-            DEADLINE,
-            MAX_INTEREST,
-            _totalToBorrow(PRICE, 2),
-            v,
-            r,
-            s
-        );
+        lendingPool.borrow(nftIds, PRICE, DEADLINE, MAX_INTEREST, _totalToBorrow(PRICE, 2), v, r, s);
     }
 
     function testRevert_userBorrowNftsWithSameIds() public {
@@ -173,16 +157,7 @@ contract LendingPoolTest is Test {
         nft.setApprovalForAll(address(lendingPool), true);
 
         vm.expectRevert("ERC721: token already minted");
-        lendingPool.borrow(
-            nftIds,
-            PRICE,
-            DEADLINE,
-            MAX_INTEREST,
-            _totalToBorrow(PRICE, 2),
-            v,
-            r,
-            s
-        );
+        lendingPool.borrow(nftIds, PRICE, DEADLINE, MAX_INTEREST, _totalToBorrow(PRICE, 2), v, r, s);
         vm.stopPrank();
     }
 
@@ -200,18 +175,8 @@ contract LendingPoolTest is Test {
         _ownerDepositIntoLendingPool();
         _userBorrowNft();
 
-        LendingPool.Loan memory loan = _generateLoan(
-            0,
-            _totalToBorrow(PRICE, 2),
-            0,
-            1 ether
-        );
-        uint256 loanId = lendingPool.getLoanId(
-            loan.nft,
-            loan.interest,
-            loan.startTime,
-            loan.borrowed
-        );
+        LendingPool.Loan memory loan = _generateLoan(0, _totalToBorrow(PRICE, 2), 0, 1 ether);
+        uint256 loanId = lendingPool.getLoanId(loan.nft, loan.interest, loan.startTime, loan.borrowed);
         assertEq(
             lendingPool.tokenURI(loanId),
             string(
@@ -233,22 +198,10 @@ contract LendingPoolTest is Test {
         _ownerDepositIntoLendingPool();
         _userBorrowNft();
 
-        assertGe(
-            lendingPool.currentAnnualInterest(0),
-            0.4 ether + 0.16 ether - 30000000
-        );
-        assertLe(
-            lendingPool.currentAnnualInterest(0),
-            0.4 ether + 0.16 ether + 30000000
-        );
-        assertGe(
-            lendingPool.currentAnnualInterest(ONE_TENTH_OF_AN_ETH),
-            0.4 ether + 0.2 ether - 40000000
-        );
-        assertLe(
-            lendingPool.currentAnnualInterest(ONE_TENTH_OF_AN_ETH),
-            0.4 ether + 0.2 ether + 40000000
-        );
+        assertGe(lendingPool.currentAnnualInterest(0), 0.4 ether + 0.16 ether - 30000000);
+        assertLe(lendingPool.currentAnnualInterest(0), 0.4 ether + 0.16 ether + 30000000);
+        assertGe(lendingPool.currentAnnualInterest(ONE_TENTH_OF_AN_ETH), 0.4 ether + 0.2 ether - 40000000);
+        assertLe(lendingPool.currentAnnualInterest(ONE_TENTH_OF_AN_ETH), 0.4 ether + 0.2 ether + 40000000);
     }
 
     function test_CurrentAnnualInterestAccruesOverTime() public {
@@ -263,14 +216,8 @@ contract LendingPoolTest is Test {
         vm.prank(user);
         lendingPool.repay{value: ONE_TENTH_OF_AN_ETH * 2}(loans, user);
 
-        assertGe(
-            lendingPool.currentAnnualInterest(0),
-            0.4 ether + 0.08 ether - 175459503840000
-        );
-        assertLe(
-            lendingPool.currentAnnualInterest(0),
-            0.4 ether + 0.08 ether + 175459503840000
-        );
+        assertGe(lendingPool.currentAnnualInterest(0), 0.4 ether + 0.08 ether - 175459503840000);
+        assertLe(lendingPool.currentAnnualInterest(0), 0.4 ether + 0.08 ether + 175459503840000);
     }
 
     function test_LiquidationOfExpiredLoans() public {
@@ -280,31 +227,19 @@ contract LendingPoolTest is Test {
         vm.prank(owner);
         lendingPool.addLiquidator(liquidator);
 
-        LendingPool.Loan memory loan = _generateLoan(
-            0,
-            _totalToBorrow(PRICE, 2),
-            0,
-            1 ether
-        );
+        LendingPool.Loan memory loan = _generateLoan(0, _totalToBorrow(PRICE, 2), 0, 1 ether);
 
         vm.warp(block.timestamp + MAX_LOAN_LENGTH + 1); // 2 weeks + 1s
 
-        (, uint256 totalRepay, , , ) = lendingPool.infoToRepayLoan(loan);
-        assertGe(
-            totalRepay,
-            ((0.48 ether * 14) / uint256(365) / 10) + 0.1 ether - 5604925205000
-        );
-        assertLe(
-            totalRepay,
-            ((0.48 ether * 14) / uint256(365) / 10) + 0.1 ether + 5604925205000
-        );
+        (, uint256 totalRepay,,,) = lendingPool.infoToRepayLoan(loan);
+        assertGe(totalRepay, ((0.48 ether * 14) / uint256(365) / 10) + 0.1 ether - 5604925205000);
+        assertLe(totalRepay, ((0.48 ether * 14) / uint256(365) / 10) + 0.1 ether + 5604925205000);
 
         vm.prank(liquidator);
         lendingPool.doEffectiveAltruism(loan, liquidator);
         assertEq(nft.ownerOf(0), liquidator);
 
-        LlamaLendFactory.LoanRepayment[]
-            memory loanInfos = new LlamaLendFactory.LoanRepayment[](1);
+        LlamaLendFactory.LoanRepayment[] memory loanInfos = new LlamaLendFactory.LoanRepayment[](1);
         loanInfos[0] = _generateLoanRepayment(loan);
 
         vm.prank(user);
@@ -319,12 +254,7 @@ contract LendingPoolTest is Test {
         vm.prank(owner);
         lendingPool.addLiquidator(liquidator);
 
-        LendingPool.Loan memory loan = _generateLoan(
-            0,
-            _totalToBorrow(PRICE, 2),
-            0,
-            1 ether
-        );
+        LendingPool.Loan memory loan = _generateLoan(0, _totalToBorrow(PRICE, 2), 0, 1 ether);
 
         vm.warp(block.timestamp + (3600 * 24 * 7)); // 1 week
 
@@ -337,11 +267,8 @@ contract LendingPoolTest is Test {
         _ownerDepositIntoLendingPool();
         _userBorrowNft();
 
-        LlamaLendFactory.LoanRepayment[]
-            memory loanInfos = new LlamaLendFactory.LoanRepayment[](1);
-        loanInfos[0] = _generateLoanRepayment(
-            _generateLoan(0, _totalToBorrow(PRICE, 2), 0, 1 ether)
-        );
+        LlamaLendFactory.LoanRepayment[] memory loanInfos = new LlamaLendFactory.LoanRepayment[](1);
+        loanInfos[0] = _generateLoanRepayment(_generateLoan(0, _totalToBorrow(PRICE, 2), 0, 1 ether));
         address randomUser = vm.addr(0x99);
 
         vm.deal(randomUser, 1000 ether); // seed ether balance
@@ -367,16 +294,10 @@ contract LendingPoolTest is Test {
         lendingPool.repay{value: ONE_TENTH_OF_AN_ETH * 2}(loans, user);
         uint256 postEth = user.balance;
         assertGe(
-            prevEth - postEth,
-            uint256(PRICE / 2) -
-                (((0.48 ether * uint256(7)) / uint256(365)) * 0.1 ether) /
-                1 ether
+            prevEth - postEth, uint256(PRICE / 2) - (((0.48 ether * uint256(7)) / uint256(365)) * 0.1 ether) / 1 ether
         );
         assertLe(
-            prevEth - postEth,
-            uint256(PRICE / 2) +
-                (((0.48 ether * uint256(7)) / uint256(365)) * 0.1 ether) /
-                1 ether
+            prevEth - postEth, uint256(PRICE / 2) + (((0.48 ether * uint256(7)) / uint256(365)) * 0.1 ether) / 1 ether
         );
         assertEq(nft.ownerOf(1), user);
     }
@@ -401,14 +322,7 @@ contract LendingPoolTest is Test {
     function test_RepayMulitplePools() public {
         vm.startPrank(owner);
         LendingPool lendingPool2 = factory.createPool(
-            oracle,
-            ONE_ETH,
-            address(nft),
-            startMaxDailyBorrows,
-            "TubbyLoan",
-            "TL",
-            uint96(SECONDS_PER_DAY),
-            interests
+            oracle, ONE_ETH, address(nft), startMaxDailyBorrows, "TubbyLoan", "TL", uint96(SECONDS_PER_DAY), interests
         );
         lendingPool.deposit{value: ONE_ETH}();
         lendingPool2.deposit{value: ONE_ETH}();
@@ -426,49 +340,20 @@ contract LendingPoolTest is Test {
         nftIds[3] = 3;
         nftIds[4] = 4;
         nftIds[5] = 5;
-        lendingPool.borrow(
-            nftIds,
-            PRICE,
-            DEADLINE,
-            MAX_INTEREST,
-            _totalToBorrow(PRICE, 6),
-            v,
-            r,
-            s
-        );
+        lendingPool.borrow(nftIds, PRICE, DEADLINE, MAX_INTEREST, _totalToBorrow(PRICE, 6), v, r, s);
 
-        bytes32 digest = sigUtils.getDigest(
-            PRICE,
-            DEADLINE + 1e8,
-            address(nft),
-            chainId
-        );
+        bytes32 digest = sigUtils.getDigest(PRICE, DEADLINE + 1e8, address(nft), chainId);
         (uint8 v2, bytes32 r2, bytes32 s2) = vm.sign(oraclePrivateKey, digest);
         nftIds = new uint256[](1);
         nftIds[0] = 6;
-        lendingPool2.borrow(
-            nftIds,
-            PRICE,
-            DEADLINE + 1e8,
-            MAX_INTEREST,
-            _totalToBorrow(PRICE, 1),
-            v2,
-            r2,
-            s2
-        );
+        lendingPool2.borrow(nftIds, PRICE, DEADLINE + 1e8, MAX_INTEREST, _totalToBorrow(PRICE, 1), v2, r2, s2);
 
-        LlamaLendFactory.LoanRepayment[]
-            memory loanInfos = new LlamaLendFactory.LoanRepayment[](2);
-        loanInfos[0] = _generateLoanRepayment(
-            _generateLoan(0, _totalToBorrow(PRICE, 6), 0, 1 ether)
-        );
+        LlamaLendFactory.LoanRepayment[] memory loanInfos = new LlamaLendFactory.LoanRepayment[](2);
+        loanInfos[0] = _generateLoanRepayment(_generateLoan(0, _totalToBorrow(PRICE, 6), 0, 1 ether));
 
         LendingPool.Loan[] memory loans = new LendingPool.Loan[](1);
         loans[0] = _generateLoan(6, _totalToBorrow(PRICE, 1), 0, 1 ether);
-        loanInfos[1] = LlamaLendFactory.LoanRepayment(
-            address(lendingPool2),
-            loans
-        );
+        loanInfos[1] = LlamaLendFactory.LoanRepayment(address(lendingPool2), loans);
 
         factory.repay{value: ONE_ETH}(loanInfos);
         vm.stopPrank();
@@ -481,12 +366,7 @@ contract LendingPoolTest is Test {
     }
 
     function test_EmergencyShutdown() public {
-        bytes32 digest = sigUtils.getDigest(
-            PRICE,
-            DEADLINE + 1e8,
-            address(nft),
-            chainId
-        );
+        bytes32 digest = sigUtils.getDigest(PRICE, DEADLINE + 1e8, address(nft), chainId);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(oraclePrivateKey, digest);
         address[] memory lendingPools = new address[](1);
         lendingPools[0] = address(lendingPool);
@@ -506,16 +386,7 @@ contract LendingPoolTest is Test {
 
         vm.startPrank(user);
         nft.setApprovalForAll(address(lendingPool), true);
-        lendingPool.borrow(
-            nftIds,
-            PRICE,
-            DEADLINE + 1e8,
-            MAX_INTEREST,
-            _totalToBorrow(PRICE, 4),
-            v,
-            r,
-            s
-        );
+        lendingPool.borrow(nftIds, PRICE, DEADLINE + 1e8, MAX_INTEREST, _totalToBorrow(PRICE, 4), v, r, s);
         vm.stopPrank();
 
         vm.prank(owner);
@@ -527,25 +398,10 @@ contract LendingPoolTest is Test {
 
         vm.prank(user);
         vm.expectRevert("max price");
-        lendingPool.borrow(
-            nftIds,
-            PRICE,
-            DEADLINE + 1e8,
-            MAX_INTEREST,
-            _totalToBorrow(PRICE, 4),
-            v,
-            r,
-            s
-        );
+        lendingPool.borrow(nftIds, PRICE, DEADLINE + 1e8, MAX_INTEREST, _totalToBorrow(PRICE, 4), v, r, s);
 
-        LendingPool.Loan memory loan = _generateLoan(
-            3,
-            _totalToBorrow(PRICE, 4),
-            0,
-            1 ether
-        );
-        LlamaLendFactory.LoanRepayment[]
-            memory loanInfos = new LlamaLendFactory.LoanRepayment[](1);
+        LendingPool.Loan memory loan = _generateLoan(3, _totalToBorrow(PRICE, 4), 0, 1 ether);
+        LlamaLendFactory.LoanRepayment[] memory loanInfos = new LlamaLendFactory.LoanRepayment[](1);
         loanInfos[0] = _generateLoanRepayment(loan);
 
         vm.prank(user);
@@ -574,38 +430,16 @@ contract LendingPoolTest is Test {
         _ownerDepositIntoLendingPool();
         _userBorrowNft();
 
-        LendingPool.Loan memory loan = _generateLoan(
-            0,
-            _totalToBorrow(PRICE, 2),
-            0,
-            1 ether
-        );
-        uint256 loanId = lendingPool.getLoanId(
-            loan.nft,
-            loan.interest,
-            loan.startTime,
-            loan.borrowed
-        );
+        LendingPool.Loan memory loan = _generateLoan(0, _totalToBorrow(PRICE, 2), 0, 1 ether);
+        uint256 loanId = lendingPool.getLoanId(loan.nft, loan.interest, loan.startTime, loan.borrowed);
 
         vm.prank(user);
         vm.expectRevert("ERC721: transfer to the zero address");
         lendingPool.transferFrom(user, address(0), loanId);
     }
 
-    function _generateSignature()
-        private
-        returns (
-            uint8 v,
-            bytes32 r,
-            bytes32 s
-        )
-    {
-        bytes32 digest = sigUtils.getDigest(
-            PRICE,
-            DEADLINE,
-            address(nft),
-            chainId
-        );
+    function _generateSignature() private returns (uint8 v, bytes32 r, bytes32 s) {
+        bytes32 digest = sigUtils.getDigest(PRICE, DEADLINE, address(nft), chainId);
         (v, r, s) = vm.sign(oraclePrivateKey, digest);
     }
 
@@ -615,17 +449,12 @@ contract LendingPoolTest is Test {
         uint256 totalBorrowedBeforeLoan,
         uint256 lendingPoolEthBalanceBeforeLoan
     ) private view returns (LendingPool.Loan memory) {
-        return
-            LendingPool.Loan(
-                nftId,
-                _calculateInterest(
-                    totalToBorrow,
-                    totalBorrowedBeforeLoan,
-                    lendingPoolEthBalanceBeforeLoan
-                ),
-                uint40(block.timestamp),
-                uint216((PRICE * LTV) / 1e18)
-            );
+        return LendingPool.Loan(
+            nftId,
+            _calculateInterest(totalToBorrow, totalBorrowedBeforeLoan, lendingPoolEthBalanceBeforeLoan),
+            uint40(block.timestamp),
+            uint216((PRICE * LTV) / 1e18)
+        );
     }
 
     function _generateLoanRepayment(LendingPool.Loan memory loan)
@@ -638,11 +467,7 @@ contract LendingPoolTest is Test {
         return LlamaLendFactory.LoanRepayment(address(lendingPool), loans);
     }
 
-    function _totalToBorrow(uint216 price, uint256 n)
-        private
-        pure
-        returns (uint256)
-    {
+    function _totalToBorrow(uint216 price, uint256 n) private pure returns (uint256) {
         return (price * n * LTV) / ONE_ETH;
     }
 
@@ -659,16 +484,7 @@ contract LendingPoolTest is Test {
 
         vm.startPrank(user);
         nft.setApprovalForAll(address(lendingPool), true);
-        lendingPool.borrow(
-            nftIds,
-            PRICE,
-            DEADLINE,
-            MAX_INTEREST,
-            _totalToBorrow(PRICE, nftIds.length),
-            v,
-            r,
-            s
-        );
+        lendingPool.borrow(nftIds, PRICE, DEADLINE, MAX_INTEREST, _totalToBorrow(PRICE, nftIds.length), v, r, s);
         vm.stopPrank();
     }
 
@@ -678,9 +494,8 @@ contract LendingPoolTest is Test {
         uint256 lendingPoolEthBalanceBeforeLoan
     ) private view returns (uint256) {
         uint256 borrowed = priceOfNextItems / 2 + totalBorrowedBeforeLoan;
-        uint256 variableRate = (borrowed *
-            interests.maxVariableInterestPerEthPerSecond) /
-            (lendingPoolEthBalanceBeforeLoan + totalBorrowedBeforeLoan);
+        uint256 variableRate = (borrowed * interests.maxVariableInterestPerEthPerSecond)
+            / (lendingPoolEthBalanceBeforeLoan + totalBorrowedBeforeLoan);
         return interests.minimumInterest + variableRate;
     }
 }

@@ -30,35 +30,11 @@ contract OracleTest is Test {
         emit log_uint(v);
         emit log_bytes32(r);
         emit log_bytes32(s);
-        assertEq(
-            sigUtils.isValidSignature(
-                PRICE,
-                DEADLINE,
-                NFT_CONTRACT,
-                block.chainid,
-                v,
-                r,
-                s,
-                oracle
-            ),
-            true
-        );
+        assertEq(sigUtils.isValidSignature(PRICE, DEADLINE, NFT_CONTRACT, block.chainid, v, r, s, oracle), true);
     }
 
-    function _generateSignature()
-        private
-        returns (
-            uint8 v,
-            bytes32 r,
-            bytes32 s
-        )
-    {
-        bytes32 digest = sigUtils.getDigest(
-            PRICE,
-            DEADLINE,
-            NFT_CONTRACT,
-            block.chainid
-        );
+    function _generateSignature() private returns (uint8 v, bytes32 r, bytes32 s) {
+        bytes32 digest = sigUtils.getDigest(PRICE, DEADLINE, NFT_CONTRACT, block.chainid);
         (v, r, s) = vm.sign(oraclePrivateKey, digest);
     }
 }

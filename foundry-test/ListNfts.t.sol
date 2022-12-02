@@ -52,23 +52,13 @@ contract ListNftsTest is Test {
     }
 
     function test_GetOwnedNftsFullRangeWithErc721Enumerable() public {
-        uint256[] memory nfts = listNfts.getOwnedNfts(
-            owner,
-            mockEnumerableNft,
-            1,
-            5000
-        );
+        uint256[] memory nfts = listNfts.getOwnedNfts(owner, mockEnumerableNft, 1, 5000);
         uint256 balance = mockEnumerableNft.balanceOf(owner);
         assertEq(nfts.length, balance);
     }
 
     function test_GetOwnedNftsPartialRangeWithErc721Enumerable() public {
-        uint256[] memory nfts = listNfts.getOwnedNfts(
-            owner,
-            mockEnumerableNft,
-            1,
-            101
-        );
+        uint256[] memory nfts = listNfts.getOwnedNfts(owner, mockEnumerableNft, 1, 101);
         // in the range 1-100 inclusive three were minted to a different user
         assertEq(nfts.length, 97);
 
@@ -78,12 +68,7 @@ contract ListNftsTest is Test {
     }
 
     function test_GetOwnedNftsNoResultsWithErc721Enumerable() public {
-        uint256[] memory nfts = listNfts.getOwnedNfts(
-            nobody,
-            mockEnumerableNft,
-            1,
-            101
-        );
+        uint256[] memory nfts = listNfts.getOwnedNfts(nobody, mockEnumerableNft, 1, 101);
         assertEq(nfts.length, 0);
     }
 }

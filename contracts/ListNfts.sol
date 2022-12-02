@@ -8,17 +8,15 @@ import "@openzeppelin/contracts/token/ERC721/extensions/IERC721Enumerable.sol";
 /// @author 0xngmi
 /// @dev Periphery contract for getting the tokenids of an NFT collection that are owned by a user
 contract ListNfts {
-
     /*//////////////////////////////////////////////////////////////
                                   VIEW
     //////////////////////////////////////////////////////////////*/
-    
-    function getOwnedNfts(
-        address owner,
-        IERC721 nftContract,
-        uint256 start,
-        uint256 end
-    ) external view returns (uint256[] memory nfts) {
+
+    function getOwnedNfts(address owner, IERC721 nftContract, uint256 start, uint256 end)
+        external
+        view
+        returns (uint256[] memory nfts)
+    {
         // make sure the array can hold all the possible tokens
         uint256 balance = nftContract.balanceOf(owner);
         // we can't have more than the balance
@@ -29,24 +27,15 @@ contract ListNfts {
         if (balance > 0) {
             uint256 length = 0;
             // check to see if it is enumerable
-            if (
-                nftContract.supportsInterface(
-                    type(IERC721Enumerable).interfaceId
-                )
-            ) {
+            if (nftContract.supportsInterface(type(IERC721Enumerable).interfaceId)) {
                 // NOTE: this assumes it actually implements the functions, no error handling
-                IERC721Enumerable enumerable = IERC721Enumerable(
-                    address(nftContract)
-                );
+                IERC721Enumerable enumerable = IERC721Enumerable(address(nftContract));
                 while (balance != 0) {
                     unchecked {
                         // unchecked: always greater than 0 here
                         --balance;
                     }
-                    uint256 tokenId = enumerable.tokenOfOwnerByIndex(
-                        owner,
-                        balance
-                    );
+                    uint256 tokenId = enumerable.tokenOfOwnerByIndex(owner, balance);
                     if (tokenId >= start && tokenId < end) {
                         nfts[length] = tokenId;
                         unchecked {
