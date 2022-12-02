@@ -9,8 +9,20 @@ import "@openzeppelin/contracts/utils/Strings.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import {Clone} from "./libs/Clone.sol";
 
+/// @title Lending Pool
+/// @author 0xngmi
+/// @dev Main contract housing logic for lending ETH for NFTs
 contract LendingPool is OwnableUpgradeable, ERC721Upgradeable, Clone {
+
+    /*//////////////////////////////////////////////////////////////
+                               LIBRARIES
+    //////////////////////////////////////////////////////////////*/
+
     using Address for address payable;
+
+    /*//////////////////////////////////////////////////////////////
+                                STRUCTS
+    //////////////////////////////////////////////////////////////*/
 
     struct Loan {
         uint nft;
@@ -23,6 +35,10 @@ contract LendingPool is OwnableUpgradeable, ERC721Upgradeable, Clone {
         uint minimumInterest;
         uint ltv;
     }
+
+    /*//////////////////////////////////////////////////////////////
+                            STATE VARIABLES
+    //////////////////////////////////////////////////////////////*/
 
     uint256 public maxVariableInterestPerEthPerSecond; // eg: 80% p.a. = 25367833587 ~ 0.8e18 / 1 years;
     uint256 public minimumInterest; // eg: 40% p.a. = 12683916793 ~ 0.4e18 / 1 years;
@@ -39,11 +55,19 @@ contract LendingPool is OwnableUpgradeable, ERC721Upgradeable, Clone {
     uint40 lastUpdateDailyBorrows;
     mapping(address => bool) public liquidators;
 
+    /*//////////////////////////////////////////////////////////////
+                                 EVENTS
+    //////////////////////////////////////////////////////////////*/
+
     event Borrowed(uint currentDailyBorrows, uint newBorrowedAmount);
     event ReducedDailyBorrows(uint currentDailyBorrows, uint amountReduced);
     event LoanCreated(uint indexed loanId, uint nft, uint interest, uint startTime, uint216 borrowed);
     event LiquidatorAdded(address liquidator);
     event LiquidatorRemoved(address liquidator);
+
+    /*//////////////////////////////////////////////////////////////
+                              CONSTRUCTOR
+    //////////////////////////////////////////////////////////////*/
 
     function initialize(address _oracle, uint _maxPrice,
         uint _maxDailyBorrows, string memory _name, string memory _symbol,
@@ -52,6 +76,8 @@ contract LendingPool is OwnableUpgradeable, ERC721Upgradeable, Clone {
     {
         __Ownable_init_unchained();
         __ERC721_init_unchained(_name, _symbol);
+
+        // Set state variables
         require(_oracle != address(0), "oracle can't be 0");
         oracle = _oracle;
         maxPrice = _maxPrice;
@@ -60,51 +86,16 @@ contract LendingPool is OwnableUpgradeable, ERC721Upgradeable, Clone {
         maxVariableInterestPerEthPerSecond = interests.maxVariableInterestPerEthPerSecond;
         minimumInterest = interests.minimumInterest;
         ltv = interests.ltv;
+
         transferOwnership(_owner);
         nftContract = IERC721(_nftContract);
         factory = _factory;
         maxLoanLength = _maxLoanLength;
     }
 
-    function addDailyBorrows(uint216 toAdd) internal {
-        uint elapsed = block.timestamp - lastUpdateDailyBorrows;
-        uint toReduce = (maxDailyBorrows*elapsed)/(1 days);
-        if(toReduce > currentDailyBorrows){
-            currentDailyBorrows = toAdd;
-        } else {
-            currentDailyBorrows = uint216(currentDailyBorrows - toReduce) + toAdd;
-        }
-        require(currentDailyBorrows < maxDailyBorrows, "max daily borrow");
-        lastUpdateDailyBorrows = uint40(block.timestamp);
-        emit Borrowed(currentDailyBorrows, toAdd);
-    }
-
-    function getLoanId(
-        uint nftId,
-        uint interest,
-        uint startTime,
-        uint216 price
-    ) public pure returns (uint id) {
-        return uint(keccak256(abi.encode(nftId, interest, startTime, price)));
-    }
-
-    function _borrow(
-        uint nftId,
-        uint216 price,
-        uint interest) internal {
-        uint id = getLoanId(nftId, interest, block.timestamp, price);
-        require(!_exists(id), "ERC721: token already minted");
-        _owners[id] = msg.sender;
-        emit LoanCreated(id, nftId, interest, block.timestamp, price);
-        emit Transfer(address(0), msg.sender, id);
-        nftContract.transferFrom(msg.sender, address(this), nftId);
-    }
-
-    function calculateInterest(uint priceOfNextItems) internal view returns (uint interest) {
-        uint borrowed = priceOfNextItems/2 + totalBorrowed;
-        uint variableRate = (borrowed * maxVariableInterestPerEthPerSecond) / (address(this).balance + totalBorrowed);
-        return minimumInterest + variableRate;
-    }
+    /*//////////////////////////////////////////////////////////////
+                                 BORROW
+    //////////////////////////////////////////////////////////////*/
 
     function borrow(
         uint[] calldata nftId,
@@ -123,7 +114,7 @@ contract LendingPool is OwnableUpgradeable, ERC721Upgradeable, Clone {
         uint length = nftId.length;
         uint borrowedNow = price * length;
         require(borrowedNow == totalToBorrow, "ltv changed");
-        uint interest = calculateInterest(borrowedNow);
+        uint interest = _calculateInterest(borrowedNow);
         require(interest <= maxInterest);
         totalBorrowed += borrowedNow;
         uint i = 0;
@@ -135,52 +126,8 @@ contract LendingPool is OwnableUpgradeable, ERC721Upgradeable, Clone {
         }
         _balances[msg.sender] += length;
         // it's okay to restrict borrowedNow to uint216 because we will send that amount in ETH, and that much ETH doesnt exist
-        addDailyBorrows(uint216(borrowedNow));
+        _addDailyBorrows(uint216(borrowedNow));
         payable(msg.sender).sendValue(borrowedNow);
-    }
-
-    function _burnWithoutBalanceChanges(uint tokenId, address owner) internal {
-        // Clear approvals
-        _approve(address(0), tokenId);
-
-        delete _owners[tokenId];
-
-        emit Transfer(owner, address(0), tokenId);
-    }
-
-    function _repay(Loan calldata loan, address from) internal returns (uint) {
-        uint loanId = getLoanId(loan.nft, loan.interest, loan.startTime, loan.borrowed);
-        require(ownerOf(loanId) == from, "not owner");
-        uint borrowed = loan.borrowed;
-        uint sinceLoanStart = block.timestamp - loan.startTime;
-        // No danger of overflow, if it overflows it means that user would need to pay 1e41 eth, which is impossible to pay anyway
-        uint interest = (sinceLoanStart * loan.interest * borrowed) / 1e18;
-        if(sinceLoanStart > maxLoanLength){
-            interest += ((sinceLoanStart - maxLoanLength)*borrowed)/(1 days);
-        }
-        totalBorrowed -= borrowed;
-        _burnWithoutBalanceChanges(loanId, from);
-
-        if(sinceLoanStart < (1 days)){
-            uint until24h;
-            unchecked {
-                until24h = (1 days) - sinceLoanStart;
-            }
-            uint toReduce = (borrowed*until24h)/(1 days);
-            if(toReduce < currentDailyBorrows){
-                unchecked {
-                    // toReduce < currentDailyBorrows always so it's fine to restrict to uint216 because currentDailyBorrows is uint216 already
-                    currentDailyBorrows = currentDailyBorrows - uint216(toReduce);
-                }
-                emit ReducedDailyBorrows(currentDailyBorrows, toReduce);
-            } else {
-                emit ReducedDailyBorrows(0, currentDailyBorrows);
-                currentDailyBorrows = 0;
-            }
-        }
-
-        nftContract.transferFrom(address(this), from, loan.nft);
-        return interest + borrowed;
     }
 
     function repay(Loan[] calldata loansToRepay, address from) external payable {
@@ -208,20 +155,18 @@ contract LendingPool is OwnableUpgradeable, ERC721Upgradeable, Clone {
         _burn(loanId);
         nftContract.transferFrom(address(this), to, loan.nft);
     }
+   
+    /*//////////////////////////////////////////////////////////////
+                                  VIEW
+    //////////////////////////////////////////////////////////////*/
 
-    function setOracle(address newValue) external onlyOwner {
-        require(newValue != address(0), "oracle can't be 0");
-        oracle = newValue;
-    }
-
-    function setMaxDailyBorrows(uint _maxDailyBorrows) external onlyOwner {
-        maxDailyBorrows = _maxDailyBorrows;
-    }
-
-    function deposit() external payable onlyOwner {}
-
-    function withdraw(uint amount) external onlyOwner {
-        payable(msg.sender).sendValue(amount);
+    function getLoanId(
+        uint nftId,
+        uint interest,
+        uint startTime,
+        uint216 price
+    ) public pure returns (uint id) {
+        return uint(keccak256(abi.encode(nftId, interest, startTime, price)));
     }
 
     function checkOracle(
@@ -269,7 +214,7 @@ contract LendingPool is OwnableUpgradeable, ERC721Upgradeable, Clone {
         if(address(this).balance + totalBorrowed == 0){
             interestPerSecond = minimumInterest;
         } else {
-            interestPerSecond = calculateInterest(priceOfNextItem);
+            interestPerSecond = _calculateInterest(priceOfNextItem);
         }
         return interestPerSecond * 365 days;
     }
@@ -281,8 +226,107 @@ contract LendingPool is OwnableUpgradeable, ERC721Upgradeable, Clone {
         maxInstantBorrow = Math.min(address(this).balance, maxDailyBorrows - dailyBorrows);
     }
 
+    /*//////////////////////////////////////////////////////////////
+                                INTERNAL
+    //////////////////////////////////////////////////////////////*/
+
+     function _borrow(
+        uint nftId,
+        uint216 price,
+        uint interest) internal {
+        uint id = getLoanId(nftId, interest, block.timestamp, price);
+        require(!_exists(id), "ERC721: token already minted");
+        _owners[id] = msg.sender;
+        emit LoanCreated(id, nftId, interest, block.timestamp, price);
+        emit Transfer(address(0), msg.sender, id);
+        nftContract.transferFrom(msg.sender, address(this), nftId);
+    }
+
+    function _addDailyBorrows(uint216 toAdd) internal {
+        uint elapsed = block.timestamp - lastUpdateDailyBorrows;
+        uint toReduce = (maxDailyBorrows*elapsed)/(1 days);
+        if(toReduce > currentDailyBorrows){
+            currentDailyBorrows = toAdd;
+        } else {
+            currentDailyBorrows = uint216(currentDailyBorrows - toReduce) + toAdd;
+        }
+        require(currentDailyBorrows < maxDailyBorrows, "max daily borrow");
+        lastUpdateDailyBorrows = uint40(block.timestamp);
+        emit Borrowed(currentDailyBorrows, toAdd);
+    }
+
+    function _calculateInterest(uint priceOfNextItems) internal view returns (uint interest) {
+        uint borrowed = priceOfNextItems/2 + totalBorrowed;
+        uint variableRate = (borrowed * maxVariableInterestPerEthPerSecond) / (address(this).balance + totalBorrowed);
+        return minimumInterest + variableRate;
+    }
+    
+
+    function _burnWithoutBalanceChanges(uint tokenId, address owner) internal {
+        // Clear approvals
+        _approve(address(0), tokenId);
+
+        delete _owners[tokenId];
+
+        emit Transfer(owner, address(0), tokenId);
+    }
+
+    function _repay(Loan calldata loan, address from) internal returns (uint) {
+        uint loanId = getLoanId(loan.nft, loan.interest, loan.startTime, loan.borrowed);
+        require(ownerOf(loanId) == from, "not owner");
+        uint borrowed = loan.borrowed;
+        uint sinceLoanStart = block.timestamp - loan.startTime;
+        // No danger of overflow, if it overflows it means that user would need to pay 1e41 eth, which is impossible to pay anyway
+        uint interest = (sinceLoanStart * loan.interest * borrowed) / 1e18;
+        if(sinceLoanStart > maxLoanLength){
+            interest += ((sinceLoanStart - maxLoanLength)*borrowed)/(1 days);
+        }
+        totalBorrowed -= borrowed;
+        _burnWithoutBalanceChanges(loanId, from);
+
+        if(sinceLoanStart < (1 days)){
+            uint until24h;
+            unchecked {
+                until24h = (1 days) - sinceLoanStart;
+            }
+            uint toReduce = (borrowed*until24h)/(1 days);
+            if(toReduce < currentDailyBorrows){
+                unchecked {
+                    // toReduce < currentDailyBorrows always so it's fine to restrict to uint216 because currentDailyBorrows is uint216 already
+                    currentDailyBorrows = currentDailyBorrows - uint216(toReduce);
+                }
+                emit ReducedDailyBorrows(currentDailyBorrows, toReduce);
+            } else {
+                emit ReducedDailyBorrows(0, currentDailyBorrows);
+                currentDailyBorrows = 0;
+            }
+        }
+
+        nftContract.transferFrom(address(this), from, loan.nft);
+        return interest + borrowed;
+    }    
+
     function _baseURI() internal view override returns (string memory) {
         return string(abi.encodePacked(baseURI, Strings.toString(block.chainid), "/", Strings.toHexString(uint160(address(this)), 20), "/", Strings.toHexString(uint160(address(nftContract)), 20), "/"));
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                                 ADMIN
+    //////////////////////////////////////////////////////////////*/
+
+    function setOracle(address newValue) external onlyOwner {
+        require(newValue != address(0), "oracle can't be 0");
+        oracle = newValue;
+    }
+
+    function setMaxDailyBorrows(uint _maxDailyBorrows) external onlyOwner {
+        maxDailyBorrows = _maxDailyBorrows;
+    }
+
+    function deposit() external payable onlyOwner {}
+
+    function withdraw(uint amount) external onlyOwner {
+        payable(msg.sender).sendValue(amount);
     }
 
     function setMaxPrice(uint newMaxPrice) external onlyOwner {
@@ -307,6 +351,10 @@ contract LendingPool is OwnableUpgradeable, ERC721Upgradeable, Clone {
         liquidators[liq] = false;
         emit LiquidatorRemoved(liq);
     }
+
+    /*//////////////////////////////////////////////////////////////
+                                  MISC
+    //////////////////////////////////////////////////////////////*/
 
     function emergencyShutdown() external {
         require(msg.sender == factory);

@@ -5,17 +5,50 @@ import './LendingPool.sol';
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/proxy/Clones.sol";
 
+/// @title LlamaLendFactory
+/// @author 0xngmi
+/// @dev Factory for LendingPool; batches shutdowns and loan repayments
 contract LlamaLendFactory is Ownable {
+
+    /*//////////////////////////////////////////////////////////////
+                               LIBRARIES
+    //////////////////////////////////////////////////////////////*/
+
     using Clones for address;
     using Address for address payable;
 
+    /*//////////////////////////////////////////////////////////////
+                                STRUCTS
+    //////////////////////////////////////////////////////////////*/
+
+    struct LoanRepayment {
+        address pool;
+        LendingPool.Loan[] loans;
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                            STATE VARIABLES
+    //////////////////////////////////////////////////////////////*/
+
     LendingPool public immutable implementation;
 
+    /*//////////////////////////////////////////////////////////////
+                                 EVENTS
+    //////////////////////////////////////////////////////////////*/
+
     event PoolCreated(address indexed nftContract, address indexed owner, address pool);
+
+    /*//////////////////////////////////////////////////////////////
+                              CONSTRUCTOR
+    //////////////////////////////////////////////////////////////*/
 
     constructor(LendingPool implementation_) {
         implementation = implementation_;
     }
+
+    /*//////////////////////////////////////////////////////////////
+                                 POOLS
+    //////////////////////////////////////////////////////////////*/
 
     function createPool(
         address _oracle, uint _maxPrice, address _nftContract, 
@@ -27,17 +60,7 @@ contract LlamaLendFactory is Ownable {
         pool.initialize(_oracle, _maxPrice, _maxDailyBorrows, _name, _symbol, interests, msg.sender, _nftContract, address(this), _maxLoanLength);
         emit PoolCreated(_nftContract, msg.sender, address(pool));
     }
-
-    function emergencyShutdown(address[] calldata pools) external onlyOwner {
-        for(uint i = 0; i < pools.length; i++){
-            LendingPool(pools[i]).emergencyShutdown();
-        }
-    }
-
-    struct LoanRepayment {
-        address pool;
-        LendingPool.Loan[] loans;
-    }
+    
     function repay(LoanRepayment[] calldata loansToRepay) external payable {
         uint length = loansToRepay.length;
         uint i = 0;
@@ -49,6 +72,20 @@ contract LlamaLendFactory is Ownable {
         }
         payable(msg.sender).sendValue(address(this).balance);
     }
+
+    /*//////////////////////////////////////////////////////////////
+                                 ADMIN
+    //////////////////////////////////////////////////////////////*/
+
+    function emergencyShutdown(address[] calldata pools) external onlyOwner {
+        for(uint i = 0; i < pools.length; i++){
+            LendingPool(pools[i]).emergencyShutdown();
+        }
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                                  MISC
+    //////////////////////////////////////////////////////////////*/
 
     receive() external payable {}
 }

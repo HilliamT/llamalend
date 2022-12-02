@@ -4,8 +4,15 @@ pragma solidity ^0.8.0;
 import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import "@openzeppelin/contracts/token/ERC721/extensions/IERC721Enumerable.sol";
 
-// Only meant as a crutch for frontend, this contract will only be used off-chain
+/// @title ListNfts
+/// @author 0xngmi
+/// @dev Periphery contract for getting the tokenids of an NFT collection that are owned by a user
 contract ListNfts {
+
+    /*//////////////////////////////////////////////////////////////
+                                  VIEW
+    //////////////////////////////////////////////////////////////*/
+    
     function getOwnedNfts(
         address owner,
         IERC721 nftContract,
